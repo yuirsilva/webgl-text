@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DOM-Exact Latin Text in WebGL</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <section class="controls">
+        <h1>Browser Layout -> WebGL Text</h1>
+        <p>
+          Latin characters only. Edit the text and styles; layout is computed by the browser,
+          then rendered in WebGL at identical positions.
+        </p>
+
+        <label class="control-row">
+          <span>Font</span>
+          <input id="fontFamily" type="text" value="'Times New Roman', serif" />
+        </label>
+
+        <label class="control-row">
+          <span>Font Size</span>
+          <input id="fontSize" type="number" min="8" max="120" step="1" value="32" />
+        </label>
+
+        <label class="control-row">
+          <span>Line Height</span>
+          <input id="lineHeight" type="number" min="0.8" max="3" step="0.05" value="1.4" />
+        </label>
+
+        <label class="control-row">
+          <span>Text Color</span>
+          <input id="textColor" type="color" value="#111111" />
+        </label>
+
+        <label class="control-row">
+          <span>Shader Preset</span>
+          <select id="shaderPreset">
+            <option value="plain">Plain</option>
+            <option value="iridescent">Iridescent</option>
+            <option value="scanline">Scanline Glow</option>
+            <option value="pulse">Pulse</option>
+            <option value="noiseWarp">Noise Warp</option>
+            <option value="rippleWarp">Ripple Warp</option>
+            <option value="custom">Custom</option>
+          </select>
+        </label>
+
+        <label class="control-row">
+          <span>Shader Intensity</span>
+          <input id="shaderIntensity" type="range" min="0" max="1" step="0.01" value="0.65" />
+        </label>
+
+        <label class="control-row">
+          <span>Shader Speed</span>
+          <input id="shaderSpeed" type="range" min="0" max="4" step="0.01" value="1.2" />
+        </label>
+
+        <label class="toggle-row">
+          <input id="animateShader" type="checkbox" checked />
+          <span>Animate Shader</span>
+        </label>
+
+        <label class="control-row">
+          <span>Custom Color Shader Body</span>
+          <textarea id="customShaderBody" rows="7">float sweep = 0.5 + 0.5 * sin(time * speed + uv.y * 16.0);
+vec3 target = vec3(1.0, 0.45, 0.15);
+return mix(baseColor, target, sweep * intensity);</textarea>
+        </label>
+
+        <label class="control-row">
+          <span>Custom Warp Shader Body</span>
+          <textarea id="customWarpBody" rows="6">vec2 p = fragCoord / max(resolution, vec2(1.0));
+float nx = noise2(p * 20.0 + vec2(time * speed, 0.0));
+float ny = noise2(p * 20.0 + vec2(17.0, -time * speed));
+vec2 offset = (vec2(nx, ny) - 0.5) * 0.18 * intensity;
+return localUV + offset;</textarea>
+        </label>
+
+        <button id="applyCustomShader" type="button">Apply Custom Shader</button>
+        <p id="shaderStatus" class="shader-status" role="status" aria-live="polite"></p>
+
+        <label class="toggle-row">
+          <input id="showDom" type="checkbox" checked />
+          <span>Show DOM text (alignment debug)</span>
+        </label>
+
+        <label class="toggle-row">
+          <input id="showWire" type="checkbox" />
+          <span>Show glyph boxes</span>
+        </label>
+      </section>
+
+      <section class="stage-wrap">
+        <div id="stage" class="stage">
+          <canvas id="glCanvas" aria-label="WebGL text output"></canvas>
+          <div id="domLayer" class="dom-layer" contenteditable="true" spellcheck="false">
+            <div>
+              The quick brown fox jumps over the lazy dog.
+            </div>
+            <div>
+              WEBGL text should match browser layout exactly.
+            </div>
+            <div>
+              0123456789 !@#$%^&*()[]{}:;,.?\/-_+=
+            </div>
+          </div>
+          <div id="layoutProbe" class="layout-probe" aria-hidden="true"></div>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="dist/main.js"></script>
+  </body>
+</html>

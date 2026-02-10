@@ -1,0 +1,190 @@
+:root {
+  --panel-bg: #f3f0e8;
+  --panel-border: #c9bfab;
+  --page-bg: radial-gradient(circle at 15% 10%, #e8efe1, #d7ddd2 55%, #c7cdbf 100%);
+  --text: #1c1c1c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  color: var(--text);
+  font-family: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
+}
+
+body {
+  background: var(--page-bg);
+}
+
+.app {
+  min-height: 100%;
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) 1fr;
+  gap: 24px;
+  padding: 24px;
+}
+
+.controls {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 18px;
+  padding: 18px;
+  align-self: start;
+  box-shadow: 0 10px 30px rgba(66, 62, 55, 0.14);
+}
+
+.controls h1 {
+  margin: 0 0 8px;
+  font-size: 22px;
+}
+
+.controls p {
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 1.45;
+  opacity: 0.85;
+}
+
+.control-row,
+.toggle-row {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.control-row span,
+.toggle-row span {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.control-row input[type="text"],
+.control-row input[type="number"],
+.control-row select,
+.control-row textarea {
+  width: 100%;
+  border: 1px solid #b9b09f;
+  background: #fffdf9;
+  border-radius: 10px;
+  padding: 8px;
+  font-size: 14px;
+}
+
+.control-row textarea {
+  resize: vertical;
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+}
+
+.control-row input[type="color"] {
+  width: 80px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid #b9b09f;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.toggle-row {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 10px;
+}
+
+#applyCustomShader {
+  border: 1px solid #7d745f;
+  background: linear-gradient(180deg, #fefaf0, #e6dcc5);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#applyCustomShader:hover {
+  background: linear-gradient(180deg, #fffef8, #ddd2b8);
+}
+
+.shader-status {
+  min-height: 1.2em;
+  margin: 8px 0 12px;
+  font-size: 12px;
+}
+
+.stage-wrap {
+  min-width: 0;
+}
+
+.stage {
+  position: relative;
+  width: min(960px, 100%);
+  min-height: 70vh;
+  border-radius: 22px;
+  border: 1px solid #7f7f7f3d;
+  box-shadow: inset 0 0 0 1px #ffffffad, 0 16px 40px rgba(34, 34, 34, 0.14);
+  overflow: hidden;
+  background:
+    linear-gradient(140deg, rgba(255, 255, 255, 0.9), rgba(243, 250, 238, 0.65)),
+    repeating-linear-gradient(
+      45deg,
+      rgba(93, 121, 77, 0.05),
+      rgba(93, 121, 77, 0.05) 8px,
+      rgba(255, 255, 255, 0) 8px,
+      rgba(255, 255, 255, 0) 16px
+    );
+}
+
+#glCanvas,
+#domLayer,
+#layoutProbe {
+  position: absolute;
+  inset: 0;
+}
+
+#glCanvas {
+  width: 100%;
+  height: 100%;
+}
+
+.dom-layer {
+  padding: 26px;
+  outline: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-break: auto;
+  font-family: "Times New Roman", serif;
+  font-size: 32px;
+  line-height: 1.4;
+  font-kerning: normal;
+  font-variant-ligatures: none;
+  color: #111111;
+}
+
+.dom-layer > div {
+  min-height: 1em;
+}
+
+.layout-probe {
+  visibility: hidden;
+  pointer-events: none;
+  padding: 26px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-break: auto;
+  font-kerning: normal;
+  font-variant-ligatures: none;
+}
+
+@media (max-width: 920px) {
+  .app {
+    grid-template-columns: 1fr;
+  }
+
+  .stage {
+    min-height: 62vh;
+  }
+}

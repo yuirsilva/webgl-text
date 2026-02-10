@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WebGL Text Example</title>
+    <style>
+      :root {
+        --page-bg:
+          radial-gradient(circle at 18% 18%, #eff8ef 0%, #d9e7d6 52%, #c4d6c0 100%);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+      }
+
+      body {
+        background: var(--page-bg);
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+      }
+
+      .stage {
+        position: relative;
+        width: min(1100px, 94vw);
+        min-height: min(78vh, 720px);
+        border-radius: 22px;
+        overflow: hidden;
+        border: 1px solid #6f7c6c50;
+        box-shadow: 0 20px 44px rgba(30, 52, 29, 0.22), inset 0 0 0 1px #ffffffa3;
+        background:
+          linear-gradient(165deg, rgba(255, 255, 255, 0.92), rgba(242, 252, 239, 0.74)),
+          repeating-linear-gradient(
+            45deg,
+            rgba(95, 123, 86, 0.05),
+            rgba(95, 123, 86, 0.05) 10px,
+            rgba(255, 255, 255, 0) 10px,
+            rgba(255, 255, 255, 0) 20px
+          );
+      }
+
+      #glCanvas,
+      #domLayer,
+      #layoutProbe {
+        position: absolute;
+        inset: 0;
+      }
+
+      #glCanvas {
+        width: 100%;
+        height: 100%;
+      }
+
+      #domLayer,
+      #layoutProbe {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        line-break: auto;
+        padding: 42px;
+      }
+
+      #domLayer {
+        opacity: 0;
+        user-select: none;
+        pointer-events: none;
+        font-kerning: normal;
+        font-variant-ligatures: none;
+      }
+
+      #layoutProbe {
+        visibility: hidden;
+        pointer-events: none;
+        font-kerning: normal;
+        font-variant-ligatures: none;
+      }
+
+      .line {
+        min-height: 1em;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage" class="stage">
+      <canvas id="glCanvas" aria-label="WebGL text output"></canvas>
+      <div id="domLayer" spellcheck="false" aria-hidden="true">
+        <div class="line">Browser layout drives this text. WebGL only draws the glyphs.</div>
+        <div class="line">Noise warp deforms the letterforms directly, not just color.</div>
+        <div class="line">ABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789</div>
+        <div class="line">The quick brown fox jumps over the lazy dog.</div>
+      </div>
+      <div id="layoutProbe" aria-hidden="true"></div>
+    </div>
+
+    <script type="module" src="dist/example.js"></script>
+  </body>
+</html>
