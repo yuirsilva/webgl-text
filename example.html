@@ -12,20 +12,26 @@
 
       * {
         box-sizing: border-box;
+        font-family: 'Helvetica Now Var';
       }
 
       html,
       body {
         width: 100%;
-        height: 100%;
+        min-height: 100%;
         margin: 0;
       }
 
       body {
+        font-family: 'Helvetica Now Var';
+        min-height: 100dvh;
         background: var(--page-bg);
-        display: grid;
-        place-items: center;
-        overflow: hidden;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 24px 0;
+        overflow-x: hidden;
+        overflow-y: auto;
       }
 
       .stage {
@@ -65,12 +71,14 @@
         overflow-wrap: anywhere;
         line-break: auto;
         padding: 42px;
+        overflow-y: auto;
+        overflow-x: hidden;
       }
 
       #domLayer {
         opacity: 0;
         user-select: none;
-        pointer-events: none;
+        pointer-events: auto;
         font-kerning: normal;
         font-variant-ligatures: none;
       }
@@ -85,9 +93,32 @@
       .line {
         min-height: 1em;
       }
+
+      .view-switch {
+        position: fixed;
+        top: 14px;
+        right: 14px;
+        z-index: 20;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        border-radius: 999px;
+        border: 1px solid #5f6e5d66;
+        background: #f8fff6e0;
+        backdrop-filter: blur(6px);
+        font: 600 12px/1.2 sans-serif;
+        color: #243322;
+        user-select: none;
+      }
     </style>
   </head>
   <body>
+    <label class="view-switch">
+      <input id="showDomOutput" type="checkbox" />
+      <span>Show HTML output</span>
+    </label>
+
     <div id="stage" class="stage">
       <canvas id="glCanvas" aria-label="WebGL text output"></canvas>
       <div id="domLayer" spellcheck="false" aria-hidden="true">

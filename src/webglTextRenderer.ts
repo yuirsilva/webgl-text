@@ -6,9 +6,110 @@ import type {
   RawShaderProgramFiles,
   RawShaderProgramSource,
   RendererFrameOptions,
-  ShaderEffect
+  ShaderEffect,
+  WarpPassEffect
 } from "./types.js";
 import { nowSeconds, toClip } from "./utils.js";
+
+const warpPassVertexSrc = `#version 300 es
+layout(location = 0) in vec2 a_pos;
+layout(location = 1) in vec2 a_uv;
+out vec2 v_uv;
+void main() {
+  gl_Position = vec4(a_pos, 0.0, 1.0);
+  v_uv = a_uv;
+}`;
+
+function buildWarpPassFragmentSource(effect: WarpPassEffect): string {
+  const warpBody = effect.warpBody || "return uv;";
+  const colorBody = effect.colorBody || "return sceneColor;";
+
+  return `#version 300 es
+precision mediump float;
+in vec2 v_uv;
+uniform sampler2D u_scene;
+uniform vec2 u_resolution;
+uniform float u_time;
+uniform float u_intensity;
+uniform float u_speed;
+out vec4 outColor;
+
+float hash21(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+
+float noise2(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  float a = hash21(i);
+  float b = hash21(i + vec2(1.0, 0.0));
+  float c = hash21(i + vec2(0.0, 1.0));
+  float d = hash21(i + vec2(1.0, 1.0));
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
+}
+
+vec2 warpUV(vec2 uv, vec2 fragCoord, vec2 resolution, float time, float intensity, float speed) {
+${warpBody}
+}
+
+vec4 shadeColor(
+  vec2 uv,
+  vec2 warpedUV,
+  vec4 sceneColor,
+  vec2 fragCoord,
+  vec2 resolution,
+  float time,
+  float intensity,
+  float speed
+) {
+${colorBody}
+}
+
+void main() {
+  vec2 warpedUV = warpUV(v_uv, gl_FragCoord.xy, u_resolution, u_time, u_intensity, u_speed);
+  warpedUV = clamp(warpedUV, vec2(0.0), vec2(1.0));
+  vec4 sceneColor = texture(u_scene, warpedUV);
+  outColor = shadeColor(v_uv, warpedUV, sceneColor, gl_FragCoord.xy, u_resolution, u_time, u_intensity, u_speed);
+}`;
+}
+
+const defaultWarpPassEffects: Record<string, WarpPassEffect> = {
+  identity: {
+    warpBody: `
+  return uv;
+`,
+    colorBody: `
+  return sceneColor;
+`
+  },
+  ripple: {
+    warpBody: `
+  vec2 centered = uv - vec2(0.5);
+  float radius = length(centered);
+  vec2 dir = centered / max(radius, 0.0001);
+  float wave = sin(radius * 40.0 - time * speed * 7.0);
+  return uv + dir * wave * (0.02 * intensity);
+`,
+    colorBody: `
+  return sceneColor;
+`
+  },
+  noise: {
+    warpBody: `
+  vec2 p = fragCoord / max(resolution, vec2(1.0));
+  float nx = noise2(p * 18.0 + vec2(time * speed, 0.0));
+  float ny = noise2(p * 18.0 + vec2(8.7, -time * speed));
+  vec2 offset = (vec2(nx, ny) - 0.5) * (0.06 * intensity);
+  return uv + offset;
+`,
+    colorBody: `
+  return sceneColor;
+`
+  }
+};
 
 export class WebGLTextRenderer {
   private readonly gl: WebGL2RenderingContext;
@@ -17,11 +118,20 @@ export class WebGLTextRenderer {
 
   private readonly vao: WebGLVertexArrayObject;
   private readonly vbo: WebGLBuffer;
+  private readonly postVao: WebGLVertexArrayObject;
+  private readonly postVbo: WebGLBuffer;
+  private readonly sceneFramebuffer: WebGLFramebuffer;
+  private readonly sceneTexture: WebGLTexture;
+  private sceneTargetWidth = 0;
+  private sceneTargetHeight = 0;
 
   private readonly shaderPrograms = new Map<string, ProgramInfo>();
+  private readonly warpPassPrograms = new Map<string, ProgramInfo>();
   private geometryDirty = true;
   private vertexCount = 0;
   private readonly startMs = performance.now();
+  private lastRenderOptions: RendererFrameOptions | null = null;
+  private scrollRafId = 0;
 
   constructor(
     private readonly stage: HTMLElement,
@@ -45,12 +155,20 @@ export class WebGLTextRenderer {
 
     const vao = gl.createVertexArray();
     const vbo = gl.createBuffer();
-    if (!vao || !vbo) {
-      throw new Error("Failed to create vertex objects");
+    const postVao = gl.createVertexArray();
+    const postVbo = gl.createBuffer();
+    const sceneFramebuffer = gl.createFramebuffer();
+    const sceneTexture = gl.createTexture();
+    if (!vao || !vbo || !postVao || !postVbo || !sceneFramebuffer || !sceneTexture) {
+      throw new Error("Failed to create WebGL objects");
     }
 
     this.vao = vao;
     this.vbo = vbo;
+    this.postVao = postVao;
+    this.postVbo = postVbo;
+    this.sceneFramebuffer = sceneFramebuffer;
+    this.sceneTexture = sceneTexture;
 
     gl.bindVertexArray(this.vao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
@@ -66,6 +184,33 @@ export class WebGLTextRenderer {
     gl.vertexAttribPointer(3, 4, gl.FLOAT, false, stride, 8 * 4);
     gl.bindVertexArray(null);
 
+    gl.bindVertexArray(this.postVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.postVbo);
+    const postVerts = new Float32Array([
+      -1, -1, 0, 0,
+       1, -1, 1, 0,
+       1,  1, 1, 1,
+      -1, -1, 0, 0,
+       1,  1, 1, 1,
+      -1,  1, 0, 1
+    ]);
+    gl.bufferData(gl.ARRAY_BUFFER, postVerts, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 4 * 4, 0);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 4 * 4, 2 * 4);
+    gl.bindVertexArray(null);
+
+    gl.bindTexture(gl.TEXTURE_2D, this.sceneTexture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFramebuffer);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.sceneTexture, 0);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
@@ -73,6 +218,25 @@ export class WebGLTextRenderer {
     for (const key of defaultShaderKeys) {
       this.registerShaderProgram(key, shaderEffects[key]);
     }
+
+    for (const key of Object.keys(defaultWarpPassEffects)) {
+      this.registerWarpPassProgram(key, defaultWarpPassEffects[key]);
+    }
+
+    this.domLayer.addEventListener("scroll", () => {
+      this.geometryDirty = true;
+      if (!this.lastRenderOptions || this.scrollRafId) {
+        return;
+      }
+
+      this.scrollRafId = requestAnimationFrame(() => {
+        this.scrollRafId = 0;
+        if (!this.lastRenderOptions) {
+          return;
+        }
+        this.render({ ...this.lastRenderOptions, forceGeometry: true });
+      });
+    }, { passive: true });
   }
 
   public sanitizeDomLayer(): void {
@@ -121,12 +285,40 @@ export class WebGLTextRenderer {
     this.registerRawShaderProgramFromSource(key, { vertexSource, fragmentSource });
   }
 
+  public hasWarpPassPreset(key: string): boolean {
+    return this.warpPassPrograms.has(key);
+  }
+
+  public registerWarpPassProgram(key: string, effect: WarpPassEffect): void {
+    const source = buildWarpPassFragmentSource(effect);
+    this.setWarpPassProgramInfo(key, this.createWarpPassProgramInfo(source));
+  }
+
+  public registerRawWarpPassProgramFromSource(key: string, source: RawShaderProgramSource): void {
+    const info = this.createWarpPassProgramInfoFromRaw(source.vertexSource, source.fragmentSource);
+    this.setWarpPassProgramInfo(key, info);
+  }
+
+  public async registerRawWarpPassProgramFromFiles(key: string, files: RawShaderProgramFiles): Promise<void> {
+    const [vertexSource, fragmentSource] = await Promise.all([
+      this.fetchShaderText(files.vertexUrl, files.fetchInit),
+      this.fetchShaderText(files.fragmentUrl, files.fetchInit)
+    ]);
+
+    this.registerRawWarpPassProgramFromSource(key, { vertexSource, fragmentSource });
+  }
+
   public shouldAnimate(preset: string, animateEnabled: boolean): boolean {
     return animateEnabled && preset !== "plain";
   }
 
   public render(options: RendererFrameOptions): void {
+    this.lastRenderOptions = { ...options };
     this.domLayer.style.color = options.showDom ? options.domColor : "transparent";
+
+    if (this.syncDomLayerOverflowState()) {
+      this.geometryDirty = true;
+    }
 
     const resized = this.resizeCanvas();
     if (resized) {
@@ -137,7 +329,38 @@ export class WebGLTextRenderer {
       this.rebuildGeometry(options.showWire);
     }
 
-    this.drawScene(options);
+    const elapsed = options.timeSeconds ?? nowSeconds(this.startMs);
+    const warpPass = options.warpPass;
+    if (warpPass?.enabled) {
+      this.ensureSceneTargetSize();
+      this.drawTextScene(options, elapsed, this.sceneFramebuffer);
+      this.drawWarpPass(warpPass.preset, elapsed, warpPass.intensity, warpPass.speed);
+      return;
+    }
+
+    this.drawTextScene(options, elapsed, null);
+  }
+
+  private syncDomLayerOverflowState(): boolean {
+    const needsY = this.domLayer.scrollHeight - this.domLayer.clientHeight > 1;
+    const needsX = this.domLayer.scrollWidth - this.domLayer.clientWidth > 1;
+
+    const nextY = needsY ? "auto" : "hidden";
+    const nextX = needsX ? "auto" : "hidden";
+
+    let changed = false;
+
+    if (this.domLayer.style.overflowY !== nextY) {
+      this.domLayer.style.overflowY = nextY;
+      changed = true;
+    }
+
+    if (this.domLayer.style.overflowX !== nextX) {
+      this.domLayer.style.overflowX = nextX;
+      changed = true;
+    }
+
+    return changed;
   }
 
   private resizeCanvas(): boolean {
@@ -247,9 +470,48 @@ export class WebGLTextRenderer {
     return new Float32Array(out);
   }
 
-  private drawScene(options: RendererFrameOptions): void {
+  private ensureSceneTargetSize(): void {
+    if (this.sceneTargetWidth === this.canvas.width && this.sceneTargetHeight === this.canvas.height) {
+      return;
+    }
+
+    this.sceneTargetWidth = this.canvas.width;
+    this.sceneTargetHeight = this.canvas.height;
+
+    this.gl.bindTexture(this.gl.TEXTURE_2D, this.sceneTexture);
+    this.gl.texImage2D(
+      this.gl.TEXTURE_2D,
+      0,
+      this.gl.RGBA,
+      this.sceneTargetWidth,
+      this.sceneTargetHeight,
+      0,
+      this.gl.RGBA,
+      this.gl.UNSIGNED_BYTE,
+      null
+    );
+
+    this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.sceneFramebuffer);
+    this.gl.framebufferTexture2D(
+      this.gl.FRAMEBUFFER,
+      this.gl.COLOR_ATTACHMENT0,
+      this.gl.TEXTURE_2D,
+      this.sceneTexture,
+      0
+    );
+
+    const status = this.gl.checkFramebufferStatus(this.gl.FRAMEBUFFER);
+    this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+    if (status !== this.gl.FRAMEBUFFER_COMPLETE) {
+      throw new Error("Scene framebuffer is incomplete");
+    }
+  }
+
+  private drawTextScene(options: RendererFrameOptions, elapsed: number, target: WebGLFramebuffer | null): void {
     const programInfo = this.getProgramInfo(options.shaderPreset);
-    const elapsed = options.timeSeconds ?? nowSeconds(this.startMs);
+
+    this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, target);
+    this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
 
     this.gl.clearColor(0, 0, 0, 0);
     this.gl.clear(this.gl.COLOR_BUFFER_BIT);
@@ -267,6 +529,30 @@ export class WebGLTextRenderer {
 
     this.gl.drawArrays(this.gl.TRIANGLES, 0, this.vertexCount);
     this.gl.bindVertexArray(null);
+    this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+  }
+
+  private drawWarpPass(preset: string, elapsed: number, intensity: number, speed: number): void {
+    const programInfo = this.getWarpPassProgramInfo(preset);
+
+    this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+    this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    this.gl.clearColor(0, 0, 0, 0);
+    this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+
+    this.gl.useProgram(programInfo.program);
+    this.gl.bindVertexArray(this.postVao);
+    this.gl.activeTexture(this.gl.TEXTURE0);
+    this.gl.bindTexture(this.gl.TEXTURE_2D, this.sceneTexture);
+
+    this.gl.uniform1i(programInfo.uniforms.tex, 0);
+    this.gl.uniform2f(programInfo.uniforms.resolution, this.canvas.width, this.canvas.height);
+    this.gl.uniform1f(programInfo.uniforms.time, elapsed);
+    this.gl.uniform1f(programInfo.uniforms.intensity, intensity);
+    this.gl.uniform1f(programInfo.uniforms.speed, speed);
+
+    this.gl.drawArrays(this.gl.TRIANGLES, 0, 6);
+    this.gl.bindVertexArray(null);
   }
 
   private getProgramInfo(key: string): ProgramInfo {
@@ -280,6 +566,19 @@ export class WebGLTextRenderer {
       throw new Error("Missing plain shader program");
     }
     return plain;
+  }
+
+  private getWarpPassProgramInfo(key: string): ProgramInfo {
+    const hit = this.warpPassPrograms.get(key);
+    if (hit) {
+      return hit;
+    }
+
+    const identity = this.warpPassPrograms.get("identity");
+    if (!identity) {
+      throw new Error("Missing identity warp pass program");
+    }
+    return identity;
   }
 
   private createShader(type: number, source: string): WebGLShader {
@@ -348,9 +647,40 @@ export class WebGLTextRenderer {
     };
   }
 
+  private createWarpPassProgramInfo(fragmentSource: string): ProgramInfo {
+    const program = this.createProgram(warpPassVertexSrc, fragmentSource);
+    return this.createWarpPassProgramInfoForProgram(program);
+  }
+
+  private createWarpPassProgramInfoFromRaw(vertexSource: string, fragmentSource: string): ProgramInfo {
+    const program = this.createProgram(vertexSource, fragmentSource);
+    return this.createWarpPassProgramInfoForProgram(program);
+  }
+
+  private createWarpPassProgramInfoForProgram(program: WebGLProgram): ProgramInfo {
+    return {
+      program,
+      uniforms: {
+        tex: this.gl.getUniformLocation(program, "u_scene"),
+        resolution: this.gl.getUniformLocation(program, "u_resolution"),
+        time: this.gl.getUniformLocation(program, "u_time"),
+        intensity: this.gl.getUniformLocation(program, "u_intensity"),
+        speed: this.gl.getUniformLocation(program, "u_speed")
+      }
+    };
+  }
+
   private setProgramInfo(key: string, info: ProgramInfo): void {
     const old = this.shaderPrograms.get(key);
     this.shaderPrograms.set(key, info);
+    if (old) {
+      this.gl.deleteProgram(old.program);
+    }
+  }
+
+  private setWarpPassProgramInfo(key: string, info: ProgramInfo): void {
+    const old = this.warpPassPrograms.get(key);
+    this.warpPassPrograms.set(key, info);
     if (old) {
       this.gl.deleteProgram(old.program);
     }

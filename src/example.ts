@@ -12,6 +12,7 @@ const stage = requireElement<HTMLElement>("stage");
 const canvas = requireElement<HTMLCanvasElement>("glCanvas");
 const domLayer = requireElement<HTMLElement>("domLayer");
 const layoutProbe = requireElement<HTMLElement>("layoutProbe");
+const showDomOutput = requireElement<HTMLInputElement>("showDomOutput");
 
 const renderer = new WebGLTextRenderer(stage, canvas, domLayer, layoutProbe);
 
@@ -92,6 +93,13 @@ async function setupCustomShader(): Promise<void> {
 
 let rafId = 0;
 
+function applyViewMode(): void {
+  const showDom = showDomOutput.checked;
+  options.showDom = showDom;
+  domLayer.style.opacity = showDom ? "1" : "0";
+  canvas.style.opacity = showDom ? "0" : "1";
+}
+
 function render(forceGeometry = false): void {
   renderer.render({ ...options, forceGeometry });
 }
@@ -123,9 +131,14 @@ ro.observe(domLayer);
 
 window.addEventListener("resize", fullRefresh);
 document.fonts.addEventListener("loadingdone", fullRefresh);
+showDomOutput.addEventListener("input", () => {
+  applyViewMode();
+  render(false);
+});
 
 async function bootstrap(): Promise<void> {
   await setupCustomShader();
+  applyViewMode();
   fullRefresh();
   startLoop();
 }

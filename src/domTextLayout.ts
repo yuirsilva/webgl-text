@@ -109,10 +109,14 @@ export class DomTextLayout {
     this.layoutProbe.style.textIndent = sourceStyle.textIndent;
     this.layoutProbe.style.textRendering = sourceStyle.textRendering;
     this.layoutProbe.style.padding = sourceStyle.padding;
+    this.layoutProbe.style.overflowX = sourceStyle.overflowX;
+    this.layoutProbe.style.overflowY = sourceStyle.overflowY;
     this.layoutProbe.style.width = `${this.domLayer.clientWidth}px`;
     this.layoutProbe.style.height = `${this.domLayer.clientHeight}px`;
 
     this.sanitizeLatinTree(this.layoutProbe);
+    this.layoutProbe.scrollLeft = this.domLayer.scrollLeft;
+    this.layoutProbe.scrollTop = this.domLayer.scrollTop;
   }
 
   private getColor(cssColor: string): Rgba {

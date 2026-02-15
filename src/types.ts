@@ -16,6 +16,11 @@ export interface RawShaderProgramFiles {
   fetchInit?: RequestInit;
 }
 
+export interface WarpPassEffect {
+  warpBody: string;
+  colorBody?: string;
+}
+
 export interface ProgramInfo {
   program: WebGLProgram;
   uniforms: {
@@ -61,6 +66,12 @@ export interface RendererFrameOptions {
   shaderPreset: string;
   shaderIntensity: number;
   shaderSpeed: number;
+  warpPass?: {
+    enabled: boolean;
+    preset: string;
+    intensity: number;
+    speed: number;
+  };
   showDom: boolean;
   domColor: string;
   showWire: boolean;
