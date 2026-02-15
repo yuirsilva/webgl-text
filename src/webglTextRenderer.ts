@@ -23,7 +23,7 @@ const defaultPostPassSources: Record<string, RawShaderProgramSource> = {
   identity: {
     vertexSource: postPassVertexSrc,
     fragmentSource: `#version 300 es
-precision mediump float;
+precision highp float;
 in vec2 v_uv;
 uniform sampler2D u_scene;
 uniform vec2 u_resolution;
@@ -39,7 +39,7 @@ void main() {
   ripple: {
     vertexSource: postPassVertexSrc,
     fragmentSource: `#version 300 es
-precision mediump float;
+precision highp float;
 in vec2 v_uv;
 uniform sampler2D u_scene;
 uniform vec2 u_resolution;
@@ -60,7 +60,7 @@ void main() {
   noise: {
     vertexSource: postPassVertexSrc,
     fragmentSource: `#version 300 es
-precision mediump float;
+precision highp float;
 in vec2 v_uv;
 uniform sampler2D u_scene;
 uniform vec2 u_resolution;
@@ -409,8 +409,8 @@ export class WebGLTextRenderer {
     for (const p of placements) {
       const glyph = this.atlas.getGlyph(p.style, p.ch, dpr);
       if (!glyph.empty) {
-        const x = p.x * dpr - glyph.baselineX;
-        const y = p.y * dpr - glyph.baselineY;
+        const x = Math.round(p.x * dpr - glyph.baselineX);
+        const y = Math.round(p.y * dpr - glyph.baselineY);
         pushQuad(
           x,
           y,

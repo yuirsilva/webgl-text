@@ -20,7 +20,7 @@ export function buildFragmentSource(effect: ShaderEffect): string {
   const shadeBody = effect.shadeBody || "return baseColor;";
 
   return `#version 300 es
-precision mediump float;
+precision highp float;
 in vec2 v_uv;
 in vec4 v_color;
 in vec4 v_uv_bounds;

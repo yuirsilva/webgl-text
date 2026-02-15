@@ -41,7 +41,7 @@ void main() {
   v_uv = a_uv;
 }`,
     fragmentSource: `#version 300 es
-precision mediump float;
+precision highp float;
 in vec2 v_uv;
 uniform sampler2D u_scene;
 uniform vec2 u_resolution;
