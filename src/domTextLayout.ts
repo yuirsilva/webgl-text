@@ -5,6 +5,7 @@ export class DomTextLayout {
   private readonly colorCache = new Map<string, Rgba>();
   private readonly lineMetricCache = new Map<string, { baselineOffset: number }>();
   private readonly metricRoot: HTMLDivElement;
+  private readonly wordCharPattern = /[0-9A-Za-z\u00C0-\u00FF]/;
 
   constructor(
     private readonly domLayer: HTMLElement,
@@ -49,7 +50,7 @@ export class DomTextLayout {
       const text = node.textContent || "";
 
       for (let i = 0; i < text.length; i += 1) {
-        const ch = text[i];
+        const ch = this.transformChar(text, i, style.textTransform);
         if (!LATIN_TEXT.test(ch)) {
           continue;
         }
@@ -126,6 +127,50 @@ export class DomTextLayout {
     this.sanitizeLatinTree(this.layoutProbe);
     this.layoutProbe.scrollLeft = this.domLayer.scrollLeft;
     this.layoutProbe.scrollTop = this.domLayer.scrollTop;
+  }
+
+  private transformChar(text: string, index: number, transformValue: string): string {
+    const ch = text[index] || "";
+    if (!ch) {
+      return ch;
+    }
+
+    const normalized = transformValue.trim().toLowerCase();
+    if (!normalized || normalized === "none") {
+      return ch;
+    }
+
+    if (normalized.includes("uppercase")) {
+      return this.normalizeTransformedChar(ch, ch.toLocaleUpperCase());
+    }
+
+    if (normalized.includes("lowercase")) {
+      return this.normalizeTransformedChar(ch, ch.toLocaleLowerCase());
+    }
+
+    if (normalized.includes("capitalize") && this.shouldCapitalizeChar(text, index)) {
+      return this.normalizeTransformedChar(ch, ch.toLocaleUpperCase());
+    }
+
+    return ch;
+  }
+
+  private shouldCapitalizeChar(text: string, index: number): boolean {
+    const ch = text[index];
+    if (!this.wordCharPattern.test(ch)) {
+      return false;
+    }
+
+    if (index === 0) {
+      return true;
+    }
+
+    const prev = text[index - 1];
+    return !this.wordCharPattern.test(prev);
+  }
+
+  private normalizeTransformedChar(source: string, transformed: string): string {
+    return transformed.length === 1 ? transformed : source;
   }
 
   private getColor(cssColor: string): Rgba {
