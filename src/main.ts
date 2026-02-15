@@ -19,7 +19,6 @@ const controls: Controls = {
   fontSize: requireElement<HTMLInputElement>("fontSize"),
   lineHeight: requireElement<HTMLInputElement>("lineHeight"),
   textColor: requireElement<HTMLInputElement>("textColor"),
-  shaderPreset: requireElement<HTMLSelectElement>("shaderPreset"),
   shaderIntensity: requireElement<HTMLInputElement>("shaderIntensity"),
   shaderSpeed: requireElement<HTMLInputElement>("shaderSpeed"),
   animateShader: requireElement<HTMLInputElement>("animateShader"),
@@ -58,7 +57,6 @@ function applyControlsToDom(): void {
 
 function renderCurrent(forceGeometry = false): void {
   renderer.render({
-    shaderPreset: controls.shaderPreset.value,
     shaderIntensity: Number(controls.shaderIntensity.value) || 0,
     shaderSpeed: Number(controls.shaderSpeed.value) || 0,
     showDom: controls.showDom.checked,
@@ -71,7 +69,7 @@ function renderCurrent(forceGeometry = false): void {
 let rafId = 0;
 
 function shouldAnimate(): boolean {
-  return renderer.shouldAnimate(controls.shaderPreset.value, controls.animateShader.checked);
+  return renderer.shouldAnimate(controls.animateShader.checked);
 }
 
 function updateAnimationLoop(): void {
@@ -108,28 +106,12 @@ function onLayoutInput(): void {
 controls.applyCustomShader.addEventListener("click", () => {
   try {
     renderer.compileCustomShader(controls.customShaderBody.value, controls.customWarpBody.value);
-    controls.shaderPreset.value = "custom";
     setShaderStatus("Custom shader applied.");
     renderCurrent(false);
     updateAnimationLoop();
   } catch (error) {
     setShaderStatus(`Custom shader error: ${normalizeShaderError(error)}`, true);
   }
-});
-
-controls.shaderPreset.addEventListener("input", () => {
-  if (controls.shaderPreset.value === "custom" && !renderer.hasShaderPreset("custom")) {
-    try {
-      renderer.compileCustomShader(controls.customShaderBody.value, controls.customWarpBody.value);
-      setShaderStatus("Custom shader applied.");
-    } catch (error) {
-      controls.shaderPreset.value = "plain";
-      setShaderStatus(`Custom shader error: ${normalizeShaderError(error)}`, true);
-    }
-  }
-
-  renderCurrent(false);
-  updateAnimationLoop();
 });
 
 controls.shaderIntensity.addEventListener("input", () => {

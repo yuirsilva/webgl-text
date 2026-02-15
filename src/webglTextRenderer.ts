@@ -6,12 +6,11 @@ import type {
   RawShaderProgramFiles,
   RawShaderProgramSource,
   RendererFrameOptions,
-  ShaderEffect,
-  WarpPassEffect
+  ShaderEffect
 } from "./types.js";
 import { nowSeconds, toClip } from "./utils.js";
 
-const warpPassVertexSrc = `#version 300 es
+const postPassVertexSrc = `#version 300 es
 layout(location = 0) in vec2 a_pos;
 layout(location = 1) in vec2 a_uv;
 out vec2 v_uv;
@@ -20,11 +19,47 @@ void main() {
   v_uv = a_uv;
 }`;
 
-function buildWarpPassFragmentSource(effect: WarpPassEffect): string {
-  const warpBody = effect.warpBody || "return uv;";
-  const colorBody = effect.colorBody || "return sceneColor;";
+const defaultPostPassSources: Record<string, RawShaderProgramSource> = {
+  identity: {
+    vertexSource: postPassVertexSrc,
+    fragmentSource: `#version 300 es
+precision mediump float;
+in vec2 v_uv;
+uniform sampler2D u_scene;
+uniform vec2 u_resolution;
+uniform float u_time;
+uniform float u_intensity;
+uniform float u_speed;
+out vec4 outColor;
 
-  return `#version 300 es
+void main() {
+  outColor = texture(u_scene, v_uv);
+}`
+  },
+  ripple: {
+    vertexSource: postPassVertexSrc,
+    fragmentSource: `#version 300 es
+precision mediump float;
+in vec2 v_uv;
+uniform sampler2D u_scene;
+uniform vec2 u_resolution;
+uniform float u_time;
+uniform float u_intensity;
+uniform float u_speed;
+out vec4 outColor;
+
+void main() {
+  vec2 centered = v_uv - vec2(0.5);
+  float radius = length(centered);
+  vec2 dir = centered / max(radius, 0.0001);
+  float wave = sin(radius * 40.0 - u_time * u_speed * 7.0);
+  vec2 mappedUV = clamp(v_uv + dir * wave * (0.02 * u_intensity), vec2(0.0), vec2(1.0));
+  outColor = texture(u_scene, mappedUV);
+}`
+  },
+  noise: {
+    vertexSource: postPassVertexSrc,
+    fragmentSource: `#version 300 es
 precision mediump float;
 in vec2 v_uv;
 uniform sampler2D u_scene;
@@ -51,63 +86,15 @@ float noise2(vec2 p) {
   return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
 }
 
-vec2 warpUV(vec2 uv, vec2 fragCoord, vec2 resolution, float time, float intensity, float speed) {
-${warpBody}
-}
-
-vec4 shadeColor(
-  vec2 uv,
-  vec2 warpedUV,
-  vec4 sceneColor,
-  vec2 fragCoord,
-  vec2 resolution,
-  float time,
-  float intensity,
-  float speed
-) {
-${colorBody}
-}
-
 void main() {
-  vec2 warpedUV = warpUV(v_uv, gl_FragCoord.xy, u_resolution, u_time, u_intensity, u_speed);
-  warpedUV = clamp(warpedUV, vec2(0.0), vec2(1.0));
-  vec4 sceneColor = texture(u_scene, warpedUV);
-  outColor = shadeColor(v_uv, warpedUV, sceneColor, gl_FragCoord.xy, u_resolution, u_time, u_intensity, u_speed);
-}`;
-}
-
-const defaultWarpPassEffects: Record<string, WarpPassEffect> = {
-  identity: {
-    warpBody: `
-  return uv;
-`,
-    colorBody: `
-  return sceneColor;
-`
-  },
-  ripple: {
-    warpBody: `
-  vec2 centered = uv - vec2(0.5);
-  float radius = length(centered);
-  vec2 dir = centered / max(radius, 0.0001);
-  float wave = sin(radius * 40.0 - time * speed * 7.0);
-  return uv + dir * wave * (0.02 * intensity);
-`,
-    colorBody: `
-  return sceneColor;
-`
-  },
-  noise: {
-    warpBody: `
-  vec2 p = fragCoord / max(resolution, vec2(1.0));
-  float nx = noise2(p * 18.0 + vec2(time * speed, 0.0));
-  float ny = noise2(p * 18.0 + vec2(8.7, -time * speed));
-  vec2 offset = (vec2(nx, ny) - 0.5) * (0.06 * intensity);
-  return uv + offset;
-`,
-    colorBody: `
-  return sceneColor;
-`
+  vec2 p = gl_FragCoord.xy / max(u_resolution, vec2(1.0));
+  float nx = noise2(p * 18.0 + vec2(u_time * u_speed, 0.0));
+  float ny = noise2(p * 18.0 + vec2(8.7, -u_time * u_speed));
+  vec2 offset = (vec2(nx, ny) - 0.5) * (0.06 * u_intensity);
+  vec2 mappedUV = v_uv + offset;
+  mappedUV = clamp(mappedUV, vec2(0.0), vec2(1.0));
+  outColor = texture(u_scene, mappedUV);
+}`
   }
 };
 
@@ -126,7 +113,9 @@ export class WebGLTextRenderer {
   private sceneTargetHeight = 0;
 
   private readonly shaderPrograms = new Map<string, ProgramInfo>();
-  private readonly warpPassPrograms = new Map<string, ProgramInfo>();
+  private readonly postPassPrograms = new Map<string, ProgramInfo>();
+  private activeShaderKey = "plain";
+  private activePostPassKey = "identity";
   private geometryDirty = true;
   private vertexCount = 0;
   private readonly startMs = performance.now();
@@ -219,8 +208,8 @@ export class WebGLTextRenderer {
       this.registerShaderProgram(key, shaderEffects[key]);
     }
 
-    for (const key of Object.keys(defaultWarpPassEffects)) {
-      this.registerWarpPassProgram(key, defaultWarpPassEffects[key]);
+    for (const key of Object.keys(defaultPostPassSources)) {
+      this.registerRawPostPassProgramFromSource(key, defaultPostPassSources[key]);
     }
 
     this.domLayer.addEventListener("scroll", () => {
@@ -253,10 +242,6 @@ export class WebGLTextRenderer {
     this.geometryDirty = true;
   }
 
-  public hasShaderPreset(key: string): boolean {
-    return this.shaderPrograms.has(key);
-  }
-
   public registerShaderProgram(key: string, effect: ShaderEffect): void {
     const source = buildFragmentSource(effect);
     this.setProgramInfo(key, this.createProgramInfo(source));
@@ -267,12 +252,14 @@ export class WebGLTextRenderer {
       shadeBody: customShadeBody || "return baseColor;",
       warpBody: customWarpBody || "return localUV;"
     });
+    this.activeShaderKey = "custom";
   }
 
   // Full custom program from raw strings (similar to three.js ShaderMaterial usage).
   public registerRawShaderProgramFromSource(key: string, source: RawShaderProgramSource): void {
     const info = this.createProgramInfoFromRaw(source.vertexSource, source.fragmentSource);
     this.setProgramInfo(key, info);
+    this.activeShaderKey = key;
   }
 
   // Full custom program from external .glsl files.
@@ -285,31 +272,23 @@ export class WebGLTextRenderer {
     this.registerRawShaderProgramFromSource(key, { vertexSource, fragmentSource });
   }
 
-  public hasWarpPassPreset(key: string): boolean {
-    return this.warpPassPrograms.has(key);
+  public registerRawPostPassProgramFromSource(key: string, source: RawShaderProgramSource): void {
+    const info = this.createPostPassProgramInfoFromRaw(source.vertexSource, source.fragmentSource);
+    this.setPostPassProgramInfo(key, info);
+    this.activePostPassKey = key;
   }
 
-  public registerWarpPassProgram(key: string, effect: WarpPassEffect): void {
-    const source = buildWarpPassFragmentSource(effect);
-    this.setWarpPassProgramInfo(key, this.createWarpPassProgramInfo(source));
-  }
-
-  public registerRawWarpPassProgramFromSource(key: string, source: RawShaderProgramSource): void {
-    const info = this.createWarpPassProgramInfoFromRaw(source.vertexSource, source.fragmentSource);
-    this.setWarpPassProgramInfo(key, info);
-  }
-
-  public async registerRawWarpPassProgramFromFiles(key: string, files: RawShaderProgramFiles): Promise<void> {
+  public async registerRawPostPassProgramFromFiles(key: string, files: RawShaderProgramFiles): Promise<void> {
     const [vertexSource, fragmentSource] = await Promise.all([
       this.fetchShaderText(files.vertexUrl, files.fetchInit),
       this.fetchShaderText(files.fragmentUrl, files.fetchInit)
     ]);
 
-    this.registerRawWarpPassProgramFromSource(key, { vertexSource, fragmentSource });
+    this.registerRawPostPassProgramFromSource(key, { vertexSource, fragmentSource });
   }
 
-  public shouldAnimate(preset: string, animateEnabled: boolean): boolean {
-    return animateEnabled && preset !== "plain";
+  public shouldAnimate(animateEnabled: boolean): boolean {
+    return animateEnabled && this.activeShaderKey !== "plain";
   }
 
   public render(options: RendererFrameOptions): void {
@@ -330,11 +309,11 @@ export class WebGLTextRenderer {
     }
 
     const elapsed = options.timeSeconds ?? nowSeconds(this.startMs);
-    const warpPass = options.warpPass;
-    if (warpPass?.enabled) {
+    const postPass = options.postPass;
+    if (postPass?.enabled) {
       this.ensureSceneTargetSize();
       this.drawTextScene(options, elapsed, this.sceneFramebuffer);
-      this.drawWarpPass(warpPass.preset, elapsed, warpPass.intensity, warpPass.speed);
+      this.drawPostPass(elapsed, postPass.intensity, postPass.speed);
       return;
     }
 
@@ -508,7 +487,7 @@ export class WebGLTextRenderer {
   }
 
   private drawTextScene(options: RendererFrameOptions, elapsed: number, target: WebGLFramebuffer | null): void {
-    const programInfo = this.getProgramInfo(options.shaderPreset);
+    const programInfo = this.getProgramInfo(this.activeShaderKey);
 
     this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, target);
     this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
@@ -532,8 +511,8 @@ export class WebGLTextRenderer {
     this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
   }
 
-  private drawWarpPass(preset: string, elapsed: number, intensity: number, speed: number): void {
-    const programInfo = this.getWarpPassProgramInfo(preset);
+  private drawPostPass(elapsed: number, intensity: number, speed: number): void {
+    const programInfo = this.getPostPassProgramInfo(this.activePostPassKey);
 
     this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
     this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
@@ -568,15 +547,15 @@ export class WebGLTextRenderer {
     return plain;
   }
 
-  private getWarpPassProgramInfo(key: string): ProgramInfo {
-    const hit = this.warpPassPrograms.get(key);
+  private getPostPassProgramInfo(key: string): ProgramInfo {
+    const hit = this.postPassPrograms.get(key);
     if (hit) {
       return hit;
     }
 
-    const identity = this.warpPassPrograms.get("identity");
+    const identity = this.postPassPrograms.get("identity");
     if (!identity) {
-      throw new Error("Missing identity warp pass program");
+      throw new Error("Missing identity post pass program");
     }
     return identity;
   }
@@ -647,17 +626,12 @@ export class WebGLTextRenderer {
     };
   }
 
-  private createWarpPassProgramInfo(fragmentSource: string): ProgramInfo {
-    const program = this.createProgram(warpPassVertexSrc, fragmentSource);
-    return this.createWarpPassProgramInfoForProgram(program);
-  }
-
-  private createWarpPassProgramInfoFromRaw(vertexSource: string, fragmentSource: string): ProgramInfo {
+  private createPostPassProgramInfoFromRaw(vertexSource: string, fragmentSource: string): ProgramInfo {
     const program = this.createProgram(vertexSource, fragmentSource);
-    return this.createWarpPassProgramInfoForProgram(program);
+    return this.createPostPassProgramInfoForProgram(program);
   }
 
-  private createWarpPassProgramInfoForProgram(program: WebGLProgram): ProgramInfo {
+  private createPostPassProgramInfoForProgram(program: WebGLProgram): ProgramInfo {
     return {
       program,
       uniforms: {
@@ -678,9 +652,9 @@ export class WebGLTextRenderer {
     }
   }
 
-  private setWarpPassProgramInfo(key: string, info: ProgramInfo): void {
-    const old = this.warpPassPrograms.get(key);
-    this.warpPassPrograms.set(key, info);
+  private setPostPassProgramInfo(key: string, info: ProgramInfo): void {
+    const old = this.postPassPrograms.get(key);
+    this.postPassPrograms.set(key, info);
     if (old) {
       this.gl.deleteProgram(old.program);
     }

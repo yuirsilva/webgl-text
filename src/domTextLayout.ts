@@ -103,6 +103,15 @@ export class DomTextLayout {
     this.layoutProbe.style.fontFamily = sourceStyle.fontFamily;
     this.layoutProbe.style.fontSize = sourceStyle.fontSize;
     this.layoutProbe.style.lineHeight = sourceStyle.lineHeight;
+    this.layoutProbe.style.display = sourceStyle.display;
+    this.layoutProbe.style.flexDirection = sourceStyle.flexDirection;
+    this.layoutProbe.style.flexWrap = sourceStyle.flexWrap;
+    this.layoutProbe.style.justifyContent = sourceStyle.justifyContent;
+    this.layoutProbe.style.alignItems = sourceStyle.alignItems;
+    this.layoutProbe.style.alignContent = sourceStyle.alignContent;
+    this.layoutProbe.style.gap = sourceStyle.gap;
+    this.layoutProbe.style.rowGap = sourceStyle.rowGap;
+    this.layoutProbe.style.columnGap = sourceStyle.columnGap;
     this.layoutProbe.style.letterSpacing = sourceStyle.letterSpacing;
     this.layoutProbe.style.wordSpacing = sourceStyle.wordSpacing;
     this.layoutProbe.style.textTransform = sourceStyle.textTransform;

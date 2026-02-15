@@ -1,6 +1,14 @@
 export const LATIN_TEXT = /^[\u0009\u000A\u000D\u0020-\u007E\u00A0-\u00FF]*$/;
 export const EPSILON = 0.35;
 
+export function requireElement<T extends HTMLElement>(id: string): T {
+  const el = document.getElementById(id);
+  if (!el) {
+    throw new Error(`Missing element #${id}`);
+  }
+  return el as T;
+}
+
 export function parsePx(value: string | null | undefined, fallback = 0): number {
   if (typeof value !== "string") {
     return fallback;

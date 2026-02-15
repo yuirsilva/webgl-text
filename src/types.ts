@@ -16,9 +16,10 @@ export interface RawShaderProgramFiles {
   fetchInit?: RequestInit;
 }
 
-export interface WarpPassEffect {
-  warpBody: string;
-  colorBody?: string;
+export interface PostPassOptions {
+  enabled: boolean;
+  intensity: number;
+  speed: number;
 }
 
 export interface ProgramInfo {
@@ -63,15 +64,9 @@ export interface GlyphPlacement {
 }
 
 export interface RendererFrameOptions {
-  shaderPreset: string;
   shaderIntensity: number;
   shaderSpeed: number;
-  warpPass?: {
-    enabled: boolean;
-    preset: string;
-    intensity: number;
-    speed: number;
-  };
+  postPass?: PostPassOptions;
   showDom: boolean;
   domColor: string;
   showWire: boolean;
@@ -84,7 +79,6 @@ export interface Controls {
   fontSize: HTMLInputElement;
   lineHeight: HTMLInputElement;
   textColor: HTMLInputElement;
-  shaderPreset: HTMLSelectElement;
   shaderIntensity: HTMLInputElement;
   shaderSpeed: HTMLInputElement;
   animateShader: HTMLInputElement;
