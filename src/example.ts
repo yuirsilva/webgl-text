@@ -1,14 +1,12 @@
 import { WebGLTextRenderer } from "./webglTextRenderer.js";
-import type { TextSelectionMode } from "./types.js";
 import { requireElement } from "./utils.js";
 
 const stage = requireElement<HTMLElement>("stage");
 const showDomOutput = document.getElementById("showDomOutput") as HTMLInputElement | null;
-const textSelectionMode: TextSelectionMode = "opt-out";
 
 const renderer = new WebGLTextRenderer(stage, {
   textSelection: {
-    mode: textSelectionMode,
+    mode: "opt-out",
     attribute: "data-text"
   }
 });
