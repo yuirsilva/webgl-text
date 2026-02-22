@@ -337,6 +337,8 @@ export class WebGLTextRenderer {
     domLayer.style.flexDirection = style.flexDirection;
     domLayer.style.flexWrap = style.flexWrap;
     domLayer.style.justifyContent = style.justifyContent;
+    domLayer.style.padding = style.padding;
+    domLayer.style.margin = style.margin;
     domLayer.style.alignItems = style.alignItems;
     domLayer.style.alignContent = style.alignContent;
     domLayer.style.gap = style.gap;
