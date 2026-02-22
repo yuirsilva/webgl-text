@@ -1,13 +1,19 @@
 import { WebGLTextRenderer } from "./webglTextRenderer.js";
+import type { TextSelectionMode } from "./types.js";
 import { requireElement } from "./utils.js";
 
 const stage = requireElement<HTMLElement>("stage");
-const canvas = requireElement<HTMLCanvasElement>("glCanvas");
-const domLayer = requireElement<HTMLElement>("domLayer");
-const layoutProbe = requireElement<HTMLElement>("layoutProbe");
-const showDomOutput = requireElement<HTMLInputElement>("showDomOutput");
+const showDomOutput = document.getElementById("showDomOutput") as HTMLInputElement | null;
+const textSelectionMode: TextSelectionMode = "opt-out";
 
-const renderer = new WebGLTextRenderer(stage, canvas, domLayer, layoutProbe);
+const renderer = new WebGLTextRenderer(stage, {
+  textSelection: {
+    mode: textSelectionMode,
+    attribute: "data-text"
+  }
+});
+const canvas = renderer.getCanvasElement();
+const domLayer = renderer.getDomLayerElement();
 
 const options = {
   shaderIntensity: 0,
@@ -66,7 +72,7 @@ void main() {
 let rafId = 0;
 
 function applyViewMode(): void {
-  const showDom = showDomOutput.checked;
+  const showDom = showDomOutput?.checked ?? false;
   options.showDom = showDom;
   domLayer.style.opacity = showDom ? "1" : "0";
   canvas.style.opacity = showDom ? "0" : "1";
@@ -102,10 +108,12 @@ ro.observe(domLayer);
 
 window.addEventListener("resize", fullRefresh);
 document.fonts.addEventListener("loadingdone", fullRefresh);
-showDomOutput.addEventListener("input", () => {
-  applyViewMode();
-  render(false);
-});
+if (showDomOutput) {
+  showDomOutput.addEventListener("input", () => {
+    applyViewMode();
+    render(false);
+  });
+}
 
 async function init(): Promise<void> {
   await setupCustomShader();

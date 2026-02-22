@@ -1,16 +1,24 @@
-import type { GlyphPlacement, Rgba } from "./types.js";
+import type { GlyphPlacement, Rgba, TextSelectionMode, TextSelectionOptions } from "./types.js";
 import { EPSILON, LATIN_TEXT } from "./utils.js";
+
+const defaultTextSelectionAttribute = "data-text";
+const defaultTextSelectionMode: TextSelectionMode = "opt-out";
 
 export class DomTextLayout {
   private readonly colorCache = new Map<string, Rgba>();
   private readonly lineMetricCache = new Map<string, { baselineOffset: number }>();
   private readonly metricRoot: HTMLDivElement;
   private readonly wordCharPattern = /[0-9A-Za-z\u00C0-\u00FF]/;
+  private textSelectionMode: TextSelectionMode = defaultTextSelectionMode;
+  private textSelectionAttribute = defaultTextSelectionAttribute;
 
   constructor(
     private readonly domLayer: HTMLElement,
-    private readonly layoutProbe: HTMLElement
+    private readonly layoutProbe: HTMLElement,
+    textSelection?: TextSelectionOptions
   ) {
+    this.setTextSelection(textSelection);
+
     this.metricRoot = document.createElement("div");
     this.metricRoot.style.position = "absolute";
     this.metricRoot.style.left = "-100000px";
@@ -30,6 +38,11 @@ export class DomTextLayout {
     this.sanitizeLatinTree(this.domLayer);
   }
 
+  public setTextSelection(textSelection?: TextSelectionOptions): void {
+    this.textSelectionMode = textSelection?.mode || defaultTextSelectionMode;
+    this.textSelectionAttribute = (textSelection?.attribute || defaultTextSelectionAttribute).trim() || defaultTextSelectionAttribute;
+  }
+
   public collectGlyphPlacements(): GlyphPlacement[] {
     this.copyDomToProbe();
 
@@ -41,7 +54,7 @@ export class DomTextLayout {
     while (walker.nextNode()) {
       const node = walker.currentNode as Text;
       const parent = node.parentElement;
-      if (!parent) {
+      if (!parent || !this.shouldProcessTextNode(node)) {
         continue;
       }
 
@@ -91,6 +104,10 @@ export class DomTextLayout {
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     while (walker.nextNode()) {
       const node = walker.currentNode as Text;
+      if (!this.shouldProcessTextNode(node)) {
+        continue;
+      }
+
       if (!LATIN_TEXT.test(node.data)) {
         node.data = node.data.replace(/[^\u0009\u000A\u000D\u0020-\u007E\u00A0-\u00FF]/g, "?");
       }
@@ -99,6 +116,7 @@ export class DomTextLayout {
 
   private copyDomToProbe(): void {
     this.layoutProbe.innerHTML = this.domLayer.innerHTML;
+    this.syncRootTextSelectionAttribute();
     const sourceStyle = getComputedStyle(this.domLayer);
 
     this.layoutProbe.style.fontFamily = sourceStyle.fontFamily;
@@ -127,6 +145,45 @@ export class DomTextLayout {
     this.sanitizeLatinTree(this.layoutProbe);
     this.layoutProbe.scrollLeft = this.domLayer.scrollLeft;
     this.layoutProbe.scrollTop = this.domLayer.scrollTop;
+  }
+
+  private syncRootTextSelectionAttribute(): void {
+    const rootValue = this.domLayer.getAttribute(this.textSelectionAttribute);
+    if (rootValue === null) {
+      this.layoutProbe.removeAttribute(this.textSelectionAttribute);
+      return;
+    }
+
+    this.layoutProbe.setAttribute(this.textSelectionAttribute, rootValue);
+  }
+
+  private shouldProcessTextNode(node: Text): boolean {
+    return this.resolveNodeSelection(node.parentElement);
+  }
+
+  private resolveNodeSelection(start: Element | null): boolean {
+    let current: Element | null = start;
+    while (current) {
+      const raw = current.getAttribute(this.textSelectionAttribute);
+      if (raw !== null) {
+        return this.parseSelectionFlag(raw);
+      }
+      current = current.parentElement;
+    }
+
+    return this.textSelectionMode === "opt-out";
+  }
+
+  private parseSelectionFlag(raw: string): boolean {
+    const normalized = raw.trim().toLowerCase();
+    if (!normalized || normalized === "true" || normalized === "1" || normalized === "yes" || normalized === "on") {
+      return true;
+    }
+    if (normalized === "false" || normalized === "0" || normalized === "no" || normalized === "off") {
+      return false;
+    }
+
+    return this.textSelectionMode === "opt-out";
   }
 
   private transformChar(text: string, index: number, transformValue: string): string {

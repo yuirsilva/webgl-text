@@ -16,6 +16,17 @@ export interface RawShaderProgramFiles {
   fetchInit?: RequestInit;
 }
 
+export type TextSelectionMode = "opt-out" | "opt-in";
+
+export interface TextSelectionOptions {
+  mode?: TextSelectionMode;
+  attribute?: string;
+}
+
+export interface RendererInitOptions {
+  textSelection?: TextSelectionOptions;
+}
+
 export interface PostPassOptions {
   enabled: boolean;
   intensity: number;

@@ -1,4 +1,4 @@
-import type { Controls } from "./types.js";
+import type { Controls, TextSelectionMode } from "./types.js";
 import { WebGLTextRenderer } from "./webglTextRenderer.js";
 
 function requireElement<T extends HTMLElement>(id: string): T {
@@ -10,9 +10,6 @@ function requireElement<T extends HTMLElement>(id: string): T {
 }
 
 const stage = requireElement<HTMLElement>("stage");
-const canvas = requireElement<HTMLCanvasElement>("glCanvas");
-const domLayer = requireElement<HTMLElement>("domLayer");
-const layoutProbe = requireElement<HTMLElement>("layoutProbe");
 
 const controls: Controls = {
   fontFamily: requireElement<HTMLInputElement>("fontFamily"),
@@ -30,7 +27,18 @@ const controls: Controls = {
   showWire: requireElement<HTMLInputElement>("showWire")
 };
 
-const renderer = new WebGLTextRenderer(stage, canvas, domLayer, layoutProbe);
+const textSelectionMode: TextSelectionMode = "opt-out";
+
+const renderer = new WebGLTextRenderer(stage, {
+  textSelection: {
+    mode: textSelectionMode,
+    attribute: "data-text"
+  }
+});
+const domLayer = renderer.getDomLayerElement();
+if (!domLayer.hasAttribute("contenteditable")) {
+  domLayer.setAttribute("contenteditable", "true");
+}
 
 function setShaderStatus(message: string, isError = false): void {
   controls.shaderStatus.textContent = message;

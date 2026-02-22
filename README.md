@@ -13,6 +13,7 @@ The DOM computes line breaks and glyph placement, then WebGL renders the glyphs 
   - from string
   - from external `.glsl` files
 - TypeScript modular architecture
+- Text targeting modes with `data-text` opt-in/opt-out
 
 ## Project Structure
 
@@ -59,6 +60,36 @@ Then open:
 
 - `http://localhost:4173/index.html`
 - `http://localhost:4173/example.html`
+
+## Text Targeting Modes
+
+The renderer can now choose which text nodes are converted to WebGL glyphs.
+
+```ts
+const renderer = new WebGLTextRenderer(stage, {
+  textSelection: {
+    mode: "opt-out",
+    attribute: "data-text"
+  }
+});
+```
+
+If `#glCanvas`, `#domLayer`, or `#layoutProbe` are missing inside `#stage`, the renderer creates them automatically.
+You can still pass explicit layers: `new WebGLTextRenderer(stage, canvas, domLayer, layoutProbe, options)`.
+
+- `mode: "opt-out"` (default): all text is rendered, unless nearest ancestor has `data-text="false"`.
+- `mode: "opt-in"`: no text is rendered, unless nearest ancestor has `data-text="true"`.
+- `attribute` defaults to `data-text`, but can be changed.
+
+Examples:
+
+```html
+<!-- opt-out mode: this subtree is skipped -->
+<section data-text="false">This stays regular DOM text.</section>
+
+<!-- opt-in mode: only this subtree is rendered -->
+<h1 data-text="true">Render this with WebGL text.</h1>
+```
 
 ## Shader APIs
 
@@ -127,6 +158,7 @@ If you provide full raw shaders, keep this interface:
 
 - Latin-only scope: characters outside `\u0020-\u007E` and `\u00A0-\u00FF` are replaced with `?`
 - `example.html` hides the source DOM text layer (`opacity: 0`, `user-select: none`) and renders WebGL output only
+- In all entrypoints, providing only `#stage` content is enough: missing `#glCanvas`, `#domLayer`, and `#layoutProbe` are created automatically
 - Font loading changes trigger geometry refresh through `document.fonts` listeners
 
 ## Troubleshooting

@@ -5,8 +5,10 @@ import type {
   ProgramInfo,
   RawShaderProgramFiles,
   RawShaderProgramSource,
+  RendererInitOptions,
   RendererFrameOptions,
-  ShaderEffect
+  ShaderEffect,
+  TextSelectionOptions
 } from "./types.js";
 import { nowSeconds, toClip } from "./utils.js";
 
@@ -98,7 +100,23 @@ void main() {
   }
 };
 
+interface ResolvedStageLayers {
+  canvas: HTMLCanvasElement;
+  domLayer: HTMLElement;
+  layoutProbe: HTMLElement;
+}
+
+const defaultLayerIds = {
+  canvas: "glCanvas",
+  domLayer: "domLayer",
+  layoutProbe: "layoutProbe"
+} as const;
+
 export class WebGLTextRenderer {
+  private readonly stage: HTMLElement;
+  private readonly canvas: HTMLCanvasElement;
+  private readonly domLayer: HTMLElement;
+  private readonly layoutProbe: HTMLElement;
   private readonly gl: WebGL2RenderingContext;
   private readonly layout: DomTextLayout;
   private readonly atlas: GlyphAtlas;
@@ -122,13 +140,34 @@ export class WebGLTextRenderer {
   private lastRenderOptions: RendererFrameOptions | null = null;
   private scrollRafId = 0;
 
+  constructor(stage: HTMLElement, initOptions?: RendererInitOptions);
   constructor(
-    private readonly stage: HTMLElement,
-    private readonly canvas: HTMLCanvasElement,
-    private readonly domLayer: HTMLElement,
-    layoutProbe: HTMLElement
+    stage: HTMLElement,
+    canvas: HTMLCanvasElement,
+    domLayer: HTMLElement,
+    layoutProbe: HTMLElement,
+    initOptions?: RendererInitOptions
+  );
+  constructor(
+    stage: HTMLElement,
+    canvasOrOptions?: HTMLCanvasElement | RendererInitOptions,
+    domLayerArg?: HTMLElement,
+    layoutProbeArg?: HTMLElement,
+    initOptionsArg?: RendererInitOptions
   ) {
-    const gl = canvas.getContext("webgl2", {
+    this.stage = stage;
+
+    const hasExplicitLayers = canvasOrOptions instanceof HTMLCanvasElement;
+    const resolvedLayers = hasExplicitLayers
+      ? this.resolveProvidedLayers(canvasOrOptions, domLayerArg, layoutProbeArg)
+      : this.ensureStageLayers();
+    const initOptions = hasExplicitLayers ? initOptionsArg : canvasOrOptions;
+
+    this.canvas = resolvedLayers.canvas;
+    this.domLayer = resolvedLayers.domLayer;
+    this.layoutProbe = resolvedLayers.layoutProbe;
+
+    const gl = this.canvas.getContext("webgl2", {
       alpha: true,
       antialias: true,
       premultipliedAlpha: true
@@ -139,7 +178,7 @@ export class WebGLTextRenderer {
     }
 
     this.gl = gl;
-    this.layout = new DomTextLayout(domLayer, layoutProbe);
+    this.layout = new DomTextLayout(this.domLayer, this.layoutProbe, initOptions?.textSelection);
     this.atlas = new GlyphAtlas(gl);
 
     const vao = gl.createVertexArray();
@@ -228,8 +267,144 @@ export class WebGLTextRenderer {
     }, { passive: true });
   }
 
+  private resolveProvidedLayers(
+    canvas: HTMLCanvasElement,
+    domLayer?: HTMLElement,
+    layoutProbe?: HTMLElement
+  ): ResolvedStageLayers {
+    if (!domLayer || !layoutProbe) {
+      throw new Error("When passing canvas, domLayer and layoutProbe are required.");
+    }
+
+    return { canvas, domLayer, layoutProbe };
+  }
+
+  private ensureStageLayers(): ResolvedStageLayers {
+    const canvas = this.findDirectChildById<HTMLCanvasElement>(defaultLayerIds.canvas) || this.createCanvasLayer();
+    const domLayer = this.findDirectChildById<HTMLElement>(defaultLayerIds.domLayer) || this.createDomLayer();
+    const layoutProbe = this.findDirectChildById<HTMLElement>(defaultLayerIds.layoutProbe) || this.createLayoutProbe();
+
+    if (getComputedStyle(this.stage).position === "static" && !this.stage.style.position) {
+      this.stage.style.position = "relative";
+    }
+
+    const hasCanvas = canvas.parentElement === this.stage;
+    const hasDomLayer = domLayer.parentElement === this.stage;
+    const hasLayoutProbe = layoutProbe.parentElement === this.stage;
+
+    if (!hasDomLayer) {
+      const transferNodes = Array.from(this.stage.childNodes).filter((node) => {
+        if (node === canvas || node === layoutProbe) {
+          return false;
+        }
+        return !(node.nodeType === Node.TEXT_NODE && !(node.textContent || "").trim());
+      });
+
+      for (const node of transferNodes) {
+        domLayer.appendChild(node);
+      }
+    }
+
+    if (!hasCanvas) {
+      if (domLayer.parentElement === this.stage) {
+        this.stage.insertBefore(canvas, domLayer);
+      } else {
+        this.stage.appendChild(canvas);
+      }
+    }
+
+    if (!hasDomLayer) {
+      this.stage.appendChild(domLayer);
+    }
+
+    if (!hasLayoutProbe) {
+      this.stage.appendChild(layoutProbe);
+    }
+
+    return { canvas, domLayer, layoutProbe };
+  }
+
+  private findDirectChildById<T extends HTMLElement>(id: string): T | null {
+    for (const child of Array.from(this.stage.children)) {
+      if (child.id === id) {
+        return child as T;
+      }
+    }
+    return null;
+  }
+
+  private applyBaseLayerBounds(el: HTMLElement): void {
+    el.style.position = "absolute";
+    el.style.inset = "0";
+  }
+
+  private createCanvasLayer(): HTMLCanvasElement {
+    const el = document.createElement("canvas");
+    el.id = defaultLayerIds.canvas;
+    el.setAttribute("aria-label", "WebGL text output");
+    this.applyBaseLayerBounds(el);
+    el.style.width = "100%";
+    el.style.height = "100%";
+    return el;
+  }
+
+  private createDomLayer(): HTMLElement {
+    const el = document.createElement("div");
+    el.id = defaultLayerIds.domLayer;
+    el.className = "dom-layer";
+    el.setAttribute("aria-hidden", "true");
+    el.setAttribute("spellcheck", "false");
+    this.applyBaseLayerBounds(el);
+    el.style.whiteSpace = "pre-wrap";
+    el.style.overflowWrap = "anywhere";
+    el.style.lineBreak = "auto";
+    el.style.overflowY = "auto";
+    el.style.overflowX = "hidden";
+    el.style.opacity = "0";
+    el.style.userSelect = "none";
+    el.style.pointerEvents = "auto";
+    el.style.fontKerning = "normal";
+    el.style.fontVariantLigatures = "none";
+    return el;
+  }
+
+  private createLayoutProbe(): HTMLElement {
+    const el = document.createElement("div");
+    el.id = defaultLayerIds.layoutProbe;
+    el.className = "layout-probe";
+    el.setAttribute("aria-hidden", "true");
+    this.applyBaseLayerBounds(el);
+    el.style.whiteSpace = "pre-wrap";
+    el.style.overflowWrap = "anywhere";
+    el.style.lineBreak = "auto";
+    el.style.overflowY = "auto";
+    el.style.overflowX = "hidden";
+    el.style.visibility = "hidden";
+    el.style.pointerEvents = "none";
+    el.style.fontKerning = "normal";
+    el.style.fontVariantLigatures = "none";
+    return el;
+  }
+
+  public getCanvasElement(): HTMLCanvasElement {
+    return this.canvas;
+  }
+
+  public getDomLayerElement(): HTMLElement {
+    return this.domLayer;
+  }
+
+  public getLayoutProbeElement(): HTMLElement {
+    return this.layoutProbe;
+  }
+
   public sanitizeDomLayer(): void {
     this.layout.sanitizeDomLayer();
+  }
+
+  public setTextSelection(textSelection?: TextSelectionOptions): void {
+    this.layout.setTextSelection(textSelection);
+    this.geometryDirty = true;
   }
 
   public clearCaches(): void {
