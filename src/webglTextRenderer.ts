@@ -1,6 +1,6 @@
 import { DomTextLayout } from "./domTextLayout.js";
 import { GlyphAtlas } from "./glyphAtlas.js";
-import { buildFragmentSource, defaultShaderKeys, shaderEffects, vertexSrc } from "./shaderSource.js";
+import { buildFragmentSource, vertexSrc } from "./shaderSource.js";
 import type {
   ProgramInfo,
   RawShaderProgramFiles,
@@ -112,6 +112,8 @@ const defaultLayerIds = {
   layoutProbe: "layoutProbe"
 } as const;
 
+const defaultShaderKey = "__default";
+
 export class WebGLTextRenderer {
   private readonly stage: HTMLElement;
   private readonly canvas: HTMLCanvasElement;
@@ -132,7 +134,7 @@ export class WebGLTextRenderer {
 
   private readonly shaderPrograms = new Map<string, ProgramInfo>();
   private readonly postPassPrograms = new Map<string, ProgramInfo>();
-  private activeShaderKey = "plain";
+  private activeShaderKey = defaultShaderKey;
   private activePostPassKey = "identity";
   private geometryDirty = true;
   private vertexCount = 0;
@@ -243,9 +245,10 @@ export class WebGLTextRenderer {
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
 
-    for (const key of defaultShaderKeys) {
-      this.registerShaderProgram(key, shaderEffects[key]);
-    }
+    this.registerShaderProgram(defaultShaderKey, {
+      warpBody: "return localUV;",
+      shadeBody: "return baseColor;"
+    });
 
     for (const key of Object.keys(defaultPostPassSources)) {
       this.registerRawPostPassProgramFromSource(key, defaultPostPassSources[key]);
@@ -303,6 +306,10 @@ export class WebGLTextRenderer {
       for (const node of transferNodes) {
         domLayer.appendChild(node);
       }
+
+      // If domLayer is auto-created, mirror stage layout props so classes like
+      // `flex flex-col gap-*` on stage still affect moved text children.
+      this.copyStageLayoutToDomLayer(domLayer);
     }
 
     if (!hasCanvas) {
@@ -322,6 +329,19 @@ export class WebGLTextRenderer {
     }
 
     return { canvas, domLayer, layoutProbe };
+  }
+
+  private copyStageLayoutToDomLayer(domLayer: HTMLElement): void {
+    const style = getComputedStyle(this.stage);
+    domLayer.style.display = style.display;
+    domLayer.style.flexDirection = style.flexDirection;
+    domLayer.style.flexWrap = style.flexWrap;
+    domLayer.style.justifyContent = style.justifyContent;
+    domLayer.style.alignItems = style.alignItems;
+    domLayer.style.alignContent = style.alignContent;
+    domLayer.style.gap = style.gap;
+    domLayer.style.rowGap = style.rowGap;
+    domLayer.style.columnGap = style.columnGap;
   }
 
   private findDirectChildById<T extends HTMLElement>(id: string): T | null {
@@ -463,7 +483,7 @@ export class WebGLTextRenderer {
   }
 
   public shouldAnimate(animateEnabled: boolean): boolean {
-    return animateEnabled && this.activeShaderKey !== "plain";
+    return animateEnabled && this.activeShaderKey !== defaultShaderKey;
   }
 
   public render(options: RendererFrameOptions): void {
@@ -715,11 +735,11 @@ export class WebGLTextRenderer {
       return hit;
     }
 
-    const plain = this.shaderPrograms.get("plain");
-    if (!plain) {
-      throw new Error("Missing plain shader program");
+    const defaultProgram = this.shaderPrograms.get(defaultShaderKey);
+    if (!defaultProgram) {
+      throw new Error("Missing default shader program");
     }
-    return plain;
+    return defaultProgram;
   }
 
   private getPostPassProgramInfo(key: string): ProgramInfo {
